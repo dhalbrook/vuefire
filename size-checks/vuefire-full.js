@@ -1,1 +1,1 @@
-export * from '../dist/vuefire.esm-bundler'
+export * from '../dist/index.mjs'
