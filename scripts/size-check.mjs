@@ -12,7 +12,10 @@ import { build } from 'esbuild'
 
 const ENTRIES_DIR = new URL('../size-checks/', import.meta.url)
 
-/** Firebase packages each entry must not end up bundling. */
+/**
+ * Firebase packages each entry must not end up bundling. Every entry needs a
+ * policy, so a new one can't pass by default; `[]` means it may bundle anything.
+ */
 const FORBIDDEN = {
   'vuefire-auth.js': [
     '@firebase/app-check',
@@ -32,6 +35,7 @@ const FORBIDDEN = {
     '@firebase/storage',
     '@firebase/auth',
   ],
+  'vuefire-full.js': [],
 }
 
 let failed = false
@@ -61,9 +65,14 @@ for (const entry of entries.sort()) {
   console.log(
     `${entry.padEnd(22)} ${kb(code.length).padStart(9)} min ${kb(gzipSync(code).length).padStart(9)} gzip  ${[...firebasePackages].sort().join(' ')}`
   )
-  const unexpected = (FORBIDDEN[entry] ?? []).filter((pkg) =>
-    firebasePackages.has(pkg)
-  )
+  if (!Object.hasOwn(FORBIDDEN, entry)) {
+    console.error(
+      `  ✗ ${entry} has no policy: add it to FORBIDDEN in scripts/size-check.mjs`
+    )
+    failed = true
+    continue
+  }
+  const unexpected = FORBIDDEN[entry].filter((pkg) => firebasePackages.has(pkg))
   if (unexpected.length) {
     console.error(`  ✗ ${entry} should not bundle ${unexpected.join(', ')}`)
     failed = true
