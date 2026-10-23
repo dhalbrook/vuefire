@@ -1,5 +1,1 @@
-export {
-  useDatabase,
-  useDatabaseList,
-  useDatabaseObject,
-} from '../dist/index.mjs'
+export { useDatabase, useDatabaseList, useDatabaseObject } from 'vuefire'

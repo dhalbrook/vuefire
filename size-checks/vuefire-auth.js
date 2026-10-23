@@ -1,1 +1,1 @@
-export { VueFireAuth, useCurrentUser, getCurrentUser } from '../dist/index.mjs'
+export { VueFireAuth, useCurrentUser, getCurrentUser } from 'vuefire'

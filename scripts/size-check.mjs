@@ -2,9 +2,10 @@
 // Bundles each entry in size-checks/ the way an app would and reports its size
 // and which Firebase SDK packages end up in it. Run after `pnpm run build`.
 //
-// Exits non-zero if an entry pulls in a Firebase product it doesn't use: none of
-// them declare `sideEffects`, so once imported they can't be tree-shaken and
-// apps pay for them in full.
+// Exits non-zero if an entry's Firebase products differ from its policy. Extra
+// products are the regression this guards against: none of them declare
+// `sideEffects`, so once imported they can't be tree-shaken and apps pay for
+// them in full. Missing ones mean the entry no longer measures what it's for.
 import { readdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
@@ -12,35 +13,78 @@ import { build } from 'esbuild'
 
 const ENTRIES_DIR = new URL('../size-checks/', import.meta.url)
 
+/** The Firebase products vuefire wraps. Policies may only name these. */
+const KNOWN_PRODUCTS = [
+  '@firebase/app-check',
+  '@firebase/auth',
+  '@firebase/database',
+  '@firebase/firestore',
+  '@firebase/storage',
+]
+
 /**
- * Firebase packages each entry must not end up bundling. Every entry needs a
- * policy, so a new one can't pass by default; `[]` means it may bundle anything.
+ * The Firebase products each entry must bundle — exactly these, no more, no
+ * less. Every entry needs a policy and every policy needs an entry, so neither
+ * can be added or removed without the other.
  */
-const FORBIDDEN = {
-  'vuefire-auth.js': [
-    '@firebase/app-check',
-    '@firebase/database',
-    '@firebase/firestore',
-    '@firebase/storage',
-  ],
-  'vuefire-firestore.js': [
-    '@firebase/app-check',
-    '@firebase/database',
-    '@firebase/storage',
-    '@firebase/auth',
-  ],
-  'vuefire-rtdb.js': [
-    '@firebase/app-check',
-    '@firebase/firestore',
-    '@firebase/storage',
-    '@firebase/auth',
-  ],
-  'vuefire-full.js': [],
+const PRODUCTS = {
+  'vuefire-app-check.js': ['@firebase/app-check'],
+  'vuefire-auth.js': ['@firebase/auth'],
+  'vuefire-firestore.js': ['@firebase/firestore'],
+  'vuefire-full.js': KNOWN_PRODUCTS,
+  'vuefire-plugin.js': [],
+  'vuefire-rtdb.js': ['@firebase/database'],
+  'vuefire-storage.js': ['@firebase/storage'],
 }
 
+const entries = (await readdir(ENTRIES_DIR))
+  .filter((f) => f.endsWith('.js'))
+  .sort()
+
+const policyErrors = [
+  ...entries
+    .filter((entry) => !Object.hasOwn(PRODUCTS, entry))
+    .map((entry) => `${entry} has no policy: add it to PRODUCTS`),
+  ...Object.keys(PRODUCTS)
+    .filter((entry) => !entries.includes(entry))
+    .map((entry) => `PRODUCTS has a policy for ${entry}, which doesn't exist`),
+  ...Object.entries(PRODUCTS).flatMap(([entry, products]) =>
+    products
+      .filter((pkg) => !KNOWN_PRODUCTS.includes(pkg))
+      .map((pkg) => `${entry}: unknown product ${pkg}`)
+  ),
+]
+if (policyErrors.length) {
+  for (const error of policyErrors) console.error(`✗ ${error}`)
+  process.exit(1)
+}
+
+const results = await Promise.all(entries.map(measure))
+
 let failed = false
-const entries = (await readdir(ENTRIES_DIR)).filter((f) => f.endsWith('.js'))
-for (const entry of entries.sort()) {
+for (const { entry, min, gzip, firebasePackages } of results) {
+  console.log(
+    `${entry.padEnd(22)} ${kb(min).padStart(9)} min ${kb(gzip).padStart(9)} gzip  ${[...firebasePackages].sort().join(' ')}`
+  )
+  const expected = PRODUCTS[/** @type {keyof typeof PRODUCTS} */ (entry)]
+  const unexpected = KNOWN_PRODUCTS.filter(
+    (pkg) => firebasePackages.has(pkg) && !expected.includes(pkg)
+  )
+  const missing = expected.filter((pkg) => !firebasePackages.has(pkg))
+  if (unexpected.length) {
+    console.error(`  ✗ ${entry} should not bundle ${unexpected.join(', ')}`)
+    failed = true
+  }
+  if (missing.length) {
+    console.error(`  ✗ ${entry} should bundle ${missing.join(', ')}`)
+    failed = true
+  }
+}
+
+if (failed) process.exit(1)
+
+/** @param {string} entry */
+async function measure(entry) {
   const result = await build({
     entryPoints: [fileURLToPath(new URL(entry, ENTRIES_DIR))],
     bundle: true,
@@ -62,24 +106,13 @@ for (const entry of entries.sort()) {
       .map((input) => input.match(/.*node_modules\/(@firebase\/[^/]+)\//)?.[1])
       .filter(Boolean)
   )
-  console.log(
-    `${entry.padEnd(22)} ${kb(code.length).padStart(9)} min ${kb(gzipSync(code).length).padStart(9)} gzip  ${[...firebasePackages].sort().join(' ')}`
-  )
-  if (!Object.hasOwn(FORBIDDEN, entry)) {
-    console.error(
-      `  ✗ ${entry} has no policy: add it to FORBIDDEN in scripts/size-check.mjs`
-    )
-    failed = true
-    continue
-  }
-  const unexpected = FORBIDDEN[entry].filter((pkg) => firebasePackages.has(pkg))
-  if (unexpected.length) {
-    console.error(`  ✗ ${entry} should not bundle ${unexpected.join(', ')}`)
-    failed = true
+  return {
+    entry,
+    min: code.length,
+    gzip: gzipSync(code).length,
+    firebasePackages,
   }
 }
-
-if (failed) process.exit(1)
 
 /** @param {number} bytes */
 function kb(bytes) {
