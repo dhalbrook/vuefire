@@ -50,20 +50,4 @@ export default defineBuildConfig({
       }
     },
   },
-
-  // hooks: {
-  //   'rollup:options': (ctx, options) => {
-  //     if (!Array.isArray(options.output)) {
-  //       options.output = options.output ? [options.output] : []
-  //     }
-  //     options.output.push({
-  //       dir: ctx.options.outDir,
-  //       format: 'cjs',
-  //       entryFileNames: '[name].cjs',
-  //       exports: 'auto',
-  //       externalLiveBindings: false,
-  //       freeze: false,
-  //     })
-  //   },
-  // },
 })

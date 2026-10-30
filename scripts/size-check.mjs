@@ -22,6 +22,15 @@ const KNOWN_PRODUCTS = [
   '@firebase/storage',
 ]
 
+/** Shared SDK internals every product builds on; any other `@firebase/*` is a product. */
+const CORE_PACKAGES = [
+  '@firebase/app',
+  '@firebase/component',
+  '@firebase/logger',
+  '@firebase/util',
+  '@firebase/webchannel-wrapper',
+]
+
 /**
  * The Firebase products each entry must bundle — exactly these, no more, no
  * less. Every entry needs a policy and every policy needs an entry, so neither
@@ -67,8 +76,8 @@ for (const { entry, min, gzip, firebasePackages } of results) {
     `${entry.padEnd(22)} ${kb(min).padStart(9)} min ${kb(gzip).padStart(9)} gzip  ${[...firebasePackages].sort().join(' ')}`
   )
   const expected = PRODUCTS[/** @type {keyof typeof PRODUCTS} */ (entry)]
-  const unexpected = KNOWN_PRODUCTS.filter(
-    (pkg) => firebasePackages.has(pkg) && !expected.includes(pkg)
+  const unexpected = [...firebasePackages].filter(
+    (pkg) => !CORE_PACKAGES.includes(pkg) && !expected.includes(pkg)
   )
   const missing = expected.filter((pkg) => !firebasePackages.has(pkg))
   if (unexpected.length) {
